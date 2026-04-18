@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MakeRust App</title>
+    <style>
+        body { margin: 0; background-color: #0F0F11; display: flex; height: 100vh; justify-content: center; align-items: center; overflow: hidden; }
+        canvas { box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+    <!-- The WASM script injects the canvas here -->
+    <script type="module">
+        import init from './target/wasm.js';
+        init();
+    </script>
+</body>
+</html>
