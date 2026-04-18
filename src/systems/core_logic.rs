@@ -1,59 +1,58 @@
 use bevy::prelude::*;
-use uuid::Uuid;
-
-#[derive(Clone, Debug)]
-pub struct Task {
-    pub id: Uuid,
-    pub title: String,
-    pub completed: bool,
-}
-
-#[derive(Resource, Default)]
-pub struct TaskList {
-    pub tasks: Vec<Task>,
-}
-
-#[derive(Event)]
-pub struct AddTaskEvent(pub String);
-
-#[derive(Event)]
-pub struct ToggleTaskEvent(pub Uuid);
-
-#[derive(Event)]
-pub struct DeleteTaskEvent(pub Uuid);
 
 pub struct CoreLogicPlugin;
 
 impl Plugin for CoreLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TaskList>()
-            .add_event::<AddTaskEvent>()
-            .add_event::<ToggleTaskEvent>()
-            .add_event::<DeleteTaskEvent>()
-            .add_systems(Update, (handle_add_task, handle_toggle_task, handle_delete_task));
+        app.init_resource::<TaskStore>()
+           .add_systems(Startup, setup_initial_tasks);
     }
 }
 
-fn handle_add_task(mut events: EventReader<AddTaskEvent>, mut task_list: ResMut<TaskList>) {
-    for ev in events.read() {
-        task_list.tasks.push(Task {
-            id: Uuid::new_v4(),
-            title: ev.0.clone(),
+#[derive(Clone, Debug)]
+pub struct Task {
+    pub entity: Entity,
+    pub title: String,
+    pub completed: bool,
+}
+
+#[derive(Resource, Default)]
+pub struct TaskStore {
+    pub tasks: Vec<Task>,
+    next_id: u32,
+}
+
+impl TaskStore {
+    pub fn add_task(&mut self, title: String) {
+        // We use a dummy entity ID for the UI logic mapping in this simple architecture
+        let entity = Entity::from_raw(self.next_id);
+        self.next_id += 1;
+        
+        self.tasks.push(Task {
+            entity,
+            title,
             completed: false,
         });
     }
-}
 
-fn handle_toggle_task(mut events: EventReader<ToggleTaskEvent>, mut task_list: ResMut<TaskList>) {
-    for ev in events.read() {
-        if let Some(task) = task_list.tasks.iter_mut().find(|t| t.id == ev.0) {
+    pub fn toggle_task(&mut self, entity: Entity) {
+        if let Some(task) = self.tasks.iter_mut().find(|t| t.entity == entity) {
             task.completed = !task.completed;
         }
     }
+
+    pub fn delete_task(&mut self, entity: Entity) {
+        self.tasks.retain(|t| t.entity != entity);
+    }
 }
 
-fn handle_delete_task(mut events: EventReader<DeleteTaskEvent>, mut task_list: ResMut<TaskList>) {
-    for ev in events.read() {
-        task_list.tasks.retain(|t| t.id != ev.0);
+fn setup_initial_tasks(mut task_store: ResMut<TaskStore>) {
+    task_store.add_task("Design the new UI mockups".to_string());
+    task_store.add_task("Review pull requests".to_string());
+    task_store.add_task("Update Bevy to version 0.12".to_string());
+    
+    // Mark one as completed for demonstration
+    if let Some(task) = task_store.tasks.get_mut(1) {
+        task.completed = true;
     }
 }

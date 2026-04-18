@@ -1,266 +1,300 @@
 pub mod theme;
+pub mod components;
 
 use bevy::prelude::*;
-use crate::systems::core_logic::{TaskList, AddTaskEvent, ToggleTaskEvent, DeleteTaskEvent};
 use theme::*;
+use components::*;
+use crate::systems::core_logic::{Task, TaskStore};
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui)
-           .add_systems(Update, (
-               update_task_list_ui.run_if(resource_changed::<TaskList>()),
-               handle_add_button,
-               handle_task_buttons,
-           ));
+           .add_systems(Update, (button_interaction_system, render_tasks_system));
     }
-}
-
-#[derive(Component)]
-struct TaskListContainer;
-
-#[derive(Component)]
-struct AddTaskButton;
-
-#[derive(Component)]
-struct ToggleButton(uuid::Uuid);
-
-#[derive(Component)]
-struct DeleteButton(uuid::Uuid);
-
-#[derive(Component)]
-struct ButtonColors {
-    normal: Color,
-    hovered: Color,
-    pressed: Color,
 }
 
 fn setup_ui(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 
-    // Main Container
+    // Root Node
     commands.spawn(NodeBundle {
         style: Style {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
-            flex_direction: FlexDirection::Column,
-            align_items: AlignItems::Center,
-            padding: UiRect::all(Val::Px(40.0)),
+            flex_direction: FlexDirection::Row,
             ..default()
         },
-        background_color: COLOR_BACKGROUND.into(),
+        background_color: BG_APP.into(),
         ..default()
-    }).with_children(|parent| {
-        // Header
-        parent.spawn(TextBundle::from_section(
-            "Task Manager",
-            TextStyle {
-                font_size: 40.0,
-                color: COLOR_TEXT,
-                ..default()
-            }
-        ).with_style(Style {
-            margin: UiRect::bottom(Val::Px(20.0)),
-            ..default()
-        }));
-
-        // Add Task Button
-        parent.spawn((
-            ButtonBundle {
-                style: Style {
-                    padding: UiRect::axes(Val::Px(20.0), Val::Px(10.0)),
-                    margin: UiRect::bottom(Val::Px(30.0)),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                background_color: COLOR_PRIMARY.into(),
+    }).with_children(|root| {
+        
+        // --- SIDEBAR ---
+        root.spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(260.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(24.0)),
                 ..default()
             },
-            AddTaskButton,
-        )).with_children(|btn| {
-            btn.spawn(TextBundle::from_section(
-                "+ Add New Task",
+            background_color: BG_SIDEBAR.into(),
+            ..default()
+        }).with_children(|sidebar| {
+            // App Logo / Title
+            sidebar.spawn(TextBundle::from_section(
+                "✓ TaskFlow",
                 TextStyle {
-                    font_size: 20.0,
-                    color: Color::WHITE,
+                    font_size: 28.0,
+                    color: ACCENT_PRIMARY,
                     ..default()
-                }
-            ));
+                },
+            ).with_style(Style { margin: UiRect::bottom(Val::Px(40.0)), ..default() }));
+
+            // Menu Item
+            spawn_sidebar_menu_item(sidebar, "All Tasks", true);
+            spawn_sidebar_menu_item(sidebar, "Today", false);
+            spawn_sidebar_menu_item(sidebar, "Completed", false);
         });
 
-        // Task List Container
-        parent.spawn((
-            NodeBundle {
+        // --- MAIN CONTENT ---
+        root.spawn(NodeBundle {
+            style: Style {
+                flex_grow: 1.0,
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(40.0)),
+                ..default()
+            },
+            ..default()
+        }).with_children(|main| {
+            
+            // Header Row
+            main.spawn(NodeBundle {
                 style: Style {
-                    flex_direction: FlexDirection::Column,
-                    width: Val::Px(600.0),
-                    row_gap: Val::Px(10.0),
+                    width: Val::Percent(100.0),
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    margin: UiRect::bottom(Val::Px(30.0)),
                     ..default()
                 },
                 ..default()
+            }).with_children(|header| {
+                header.spawn(TextBundle::from_section(
+                    "All Tasks",
+                    TextStyle {
+                        font_size: 36.0,
+                        color: TEXT_MAIN,
+                        ..default()
+                    },
+                ));
+
+                // Add Task Button
+                header.spawn((ButtonBundle {
+                    style: Style {
+                        padding: UiRect::axes(Val::Px(20.0), Val::Px(12.0)),
+                        border_radius: BorderRadius::all(RADIUS_BUTTON),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    background_color: ACCENT_PRIMARY.into(),
+                    ..default()
+                }, ButtonAction::AddTask)).with_children(|btn| {
+                    btn.spawn(TextBundle::from_section(
+                        "+ New Task",
+                        TextStyle {
+                            font_size: 16.0,
+                            color: BG_APP,
+                            ..default()
+                        },
+                    ));
+                });
+            });
+
+            // Task List Container
+            main.spawn((NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    overflow: Overflow::clip_y(),
+                    ..default()
+                },
+                ..default()
+            }, TaskListContainer));
+        });
+    });
+}
+
+fn spawn_sidebar_menu_item(parent: &mut ChildBuilder, text: &str, active: bool) {
+    let bg_color = if active { BG_CARD } else { Color::NONE };
+    let text_color = if active { TEXT_MAIN } else { TEXT_MUTED };
+
+    parent.spawn((ButtonBundle {
+        style: Style {
+            width: Val::Percent(100.0),
+            padding: UiRect::axes(Val::Px(16.0), Val::Px(12.0)),
+            margin: UiRect::bottom(Val::Px(8.0)),
+            border_radius: BorderRadius::all(RADIUS_BUTTON),
+            ..default()
+        },
+        background_color: bg_color.into(),
+        ..default()
+    }, ButtonAction::SidebarMenu)).with_children(|btn| {
+        btn.spawn(TextBundle::from_section(
+            text,
+            TextStyle {
+                font_size: 16.0,
+                color: text_color,
+                ..default()
             },
-            TaskListContainer,
         ));
     });
 }
 
-fn update_task_list_ui(
+// --- SYSTEMS ---
+
+fn render_tasks_system(
     mut commands: Commands,
-    task_list: Res<TaskList>,
-    q_container: Query<Entity, With<TaskListContainer>>,
+    task_store: Res<TaskStore>,
+    container_query: Query<Entity, With<TaskListContainer>>,
 ) {
-    let Ok(container_entity) = q_container.get_single() else { return };
+    if !task_store.is_changed() {
+        return;
+    }
 
-    // Clear existing tasks from UI
-    commands.entity(container_entity).clear_children();
+    let Ok(container_entity) = container_query.get_single() else { return };
 
-    // Rebuild the list
+    // Clear existing tasks in UI
+    commands.entity(container_entity).despawn_descendants();
+
+    // Rebuild tasks
     commands.entity(container_entity).with_children(|parent| {
-        if task_list.tasks.is_empty() {
+        if task_store.tasks.is_empty() {
             parent.spawn(TextBundle::from_section(
-                "No tasks yet. Add one above!",
-                TextStyle {
-                    font_size: 20.0,
-                    color: COLOR_TEXT_DIM,
-                    ..default()
-                }
-            ).with_style(Style {
-                align_self: AlignSelf::Center,
-                margin: UiRect::top(Val::Px(20.0)),
-                ..default()
-            }));
+                "No tasks yet. Enjoy your day!",
+                TextStyle { font_size: 18.0, color: TEXT_MUTED, ..default() }
+            ).with_style(Style { margin: UiRect::top(Val::Px(20.0)), ..default() }));
             return;
         }
 
-        for task in &task_list.tasks {
-            parent.spawn(NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.0),
-                    padding: UiRect::all(Val::Px(15.0)),
-                    justify_content: JustifyContent::SpaceBetween,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                background_color: COLOR_PANEL.into(),
-                ..default()
-            }).with_children(|row| {
-                // Task Title
-                let text_color = if task.completed { COLOR_TEXT_DIM } else { COLOR_TEXT };
-                let title = if task.completed { format!("✓ {}", task.title) } else { task.title.clone() };
-                
-                row.spawn(TextBundle::from_section(
-                    title,
-                    TextStyle {
-                        font_size: 22.0,
-                        color: text_color,
-                        ..default()
-                    }
-                ));
-
-                // Buttons Container
-                row.spawn(NodeBundle {
-                    style: Style {
-                        column_gap: Val::Px(10.0),
-                        ..default()
-                    },
-                    ..default()
-                }).with_children(|btns| {
-                    // Toggle Button
-                    let (bg_norm, bg_hov, bg_press) = if task.completed {
-                        (COLOR_TEXT_DIM, COLOR_TEXT_DIM, COLOR_TEXT_DIM)
-                    } else {
-                        (COLOR_SUCCESS, COLOR_SUCCESS_HOVER, COLOR_SUCCESS_PRESS)
-                    };
-
-                    btns.spawn((
-                        ButtonBundle {
-                            style: Style {
-                                padding: UiRect::axes(Val::Px(15.0), Val::Px(8.0)),
-                                ..default()
-                            },
-                            background_color: bg_norm.into(),
-                            ..default()
-                        },
-                        ToggleButton(task.id),
-                        ButtonColors { normal: bg_norm, hovered: bg_hov, pressed: bg_press },
-                    )).with_children(|btn| {
-                        btn.spawn(TextBundle::from_section(
-                            if task.completed { "Undo" } else { "Done" },
-                            TextStyle { font_size: 16.0, color: Color::WHITE, ..default() }
-                        ));
-                    });
-
-                    // Delete Button
-                    btns.spawn((
-                        ButtonBundle {
-                            style: Style {
-                                padding: UiRect::axes(Val::Px(15.0), Val::Px(8.0)),
-                                ..default()
-                            },
-                            background_color: COLOR_DANGER.into(),
-                            ..default()
-                        },
-                        DeleteButton(task.id),
-                        ButtonColors { normal: COLOR_DANGER, hovered: COLOR_DANGER_HOVER, pressed: COLOR_DANGER_PRESS },
-                    )).with_children(|btn| {
-                        btn.spawn(TextBundle::from_section(
-                            "Delete",
-                            TextStyle { font_size: 16.0, color: Color::WHITE, ..default() }
-                        ));
-                    });
-                });
-            });
+        for task in &task_store.tasks {
+            spawn_task_card(parent, task);
         }
     });
 }
 
-fn handle_add_button(
-    mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor),
-        (Changed<Interaction>, With<AddTaskButton>),
-    >,
-    mut add_task_ev: EventWriter<AddTaskEvent>,
-) {
-    for (interaction, mut bg) in &mut interaction_query {
-        match *interaction {
-            Interaction::Pressed => {
-                *bg = COLOR_PRIMARY_PRESS.into();
-                let random_tasks = ["Review Code", "Write Documentation", "Fix Bugs", "Design UI", "Team Meeting", "Refactor Logic"];
-                let task_name = random_tasks[rand::random::<usize>() % random_tasks.len()].to_string();
-                add_task_ev.send(AddTaskEvent(task_name));
-            }
-            Interaction::Hovered => {
-                *bg = COLOR_PRIMARY_HOVER.into();
-            }
-            Interaction::None => {
-                *bg = COLOR_PRIMARY.into();
-            }
-        }
-    }
+fn spawn_task_card(parent: &mut ChildBuilder, task: &Task) {
+    parent.spawn(NodeBundle {
+        style: Style {
+            width: Val::Percent(100.0),
+            padding: UiRect::all(PADDING_CARD),
+            margin: UiRect::bottom(Val::Px(12.0)),
+            border_radius: BorderRadius::all(RADIUS_CARD),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            ..default()
+        },
+        background_color: BG_CARD.into(),
+        ..default()
+    }).with_children(|card| {
+        // Left side: Checkbox + Title
+        card.spawn(NodeBundle {
+            style: Style { align_items: AlignItems::Center, ..default() },
+            ..default()
+        }).with_children(|left| {
+            // Checkbox
+            let checkbox_color = if task.completed { SUCCESS } else { BG_APP };
+            let border_color = if task.completed { SUCCESS } else { TEXT_MUTED };
+            
+            left.spawn((ButtonBundle {
+                style: Style {
+                    width: Val::Px(24.0),
+                    height: Val::Px(24.0),
+                    border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    margin: UiRect::right(Val::Px(16.0)),
+                    ..default()
+                },
+                border_color: border_color.into(),
+                background_color: checkbox_color.into(),
+                ..default()
+            }, ButtonAction::ToggleTask(task.entity)));
+
+            // Title
+            let text_color = if task.completed { TEXT_MUTED } else { TEXT_MAIN };
+            left.spawn(TextBundle::from_section(
+                &task.title,
+                TextStyle {
+                    font_size: 18.0,
+                    color: text_color,
+                    ..default()
+                },
+            ));
+        });
+
+        // Right side: Delete Button
+        card.spawn((ButtonBundle {
+            style: Style {
+                padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                border_radius: BorderRadius::all(RADIUS_BUTTON),
+                ..default()
+            },
+            background_color: Color::NONE.into(),
+            ..default()
+        }, ButtonAction::DeleteTask(task.entity))).with_children(|btn| {
+            btn.spawn(TextBundle::from_section(
+                "Delete",
+                TextStyle {
+                    font_size: 14.0,
+                    color: DANGER,
+                    ..default()
+                },
+            ));
+        });
+    });
 }
 
-fn handle_task_buttons(
+fn button_interaction_system(
     mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, &ButtonColors, Option<&ToggleButton>, Option<&DeleteButton>),
-        (Changed<Interaction>, Or<(With<ToggleButton>, With<DeleteButton>)>),
+        (&Interaction, &mut BackgroundColor, &ButtonAction),
+        (Changed<Interaction>, With<Button>),
     >,
-    mut toggle_ev: EventWriter<ToggleTaskEvent>,
-    mut delete_ev: EventWriter<DeleteTaskEvent>,
+    mut task_store: ResMut<TaskStore>,
 ) {
-    for (interaction, mut bg, colors, toggle, delete) in &mut interaction_query {
+    for (interaction, mut color, action) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                *bg = colors.pressed.into();
-                if let Some(t) = toggle { toggle_ev.send(ToggleTaskEvent(t.0)); }
-                if let Some(d) = delete { delete_ev.send(DeleteTaskEvent(d.0)); }
+                match action {
+                    ButtonAction::AddTask => {
+                        let count = task_store.tasks.len() + 1;
+                        task_store.add_task(format!("New Task #{}", count));
+                    }
+                    ButtonAction::ToggleTask(entity) => {
+                        task_store.toggle_task(*entity);
+                    }
+                    ButtonAction::DeleteTask(entity) => {
+                        task_store.delete_task(*entity);
+                    }
+                    _ => {}
+                }
             }
             Interaction::Hovered => {
-                *bg = colors.hovered.into();
+                match action {
+                    ButtonAction::AddTask => *color = ACCENT_PRIMARY_HOVER.into(),
+                    ButtonAction::DeleteTask(_) => *color = BG_CARD_HOVER.into(),
+                    ButtonAction::SidebarMenu => *color = BG_CARD.into(),
+                    _ => {}
+                }
             }
             Interaction::None => {
-                *bg = colors.normal.into();
+                match action {
+                    ButtonAction::AddTask => *color = ACCENT_PRIMARY.into(),
+                    ButtonAction::DeleteTask(_) => *color = Color::NONE.into(),
+                    ButtonAction::SidebarMenu => *color = Color::NONE.into(), // Simplified for demo
+                    _ => {}
+                }
             }
         }
     }
