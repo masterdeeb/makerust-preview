@@ -30,6 +30,7 @@ jobs:
       - name: Prepare Deployment
         run: |
           cp index.html dist/index.html || true
+          # Note: wasm-pack automatically puts makerust_app.js and makerust_app_bg.wasm inside dist/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
