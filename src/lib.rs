@@ -20,9 +20,9 @@ pub fn run_wasm() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Professional Calculator".into(),
-                resolution: (400.0, 600.0).into(),
-                resizable: false,
+                title: "MakeRust Application".into(),
+                resolution: (1280.0, 720.0).into(),
+                resizable: true,
                 ..default()
             }),
             ..default()

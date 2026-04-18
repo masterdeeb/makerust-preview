@@ -1,167 +1,267 @@
 pub mod theme;
 
 use bevy::prelude::*;
-use crate::systems::core_logic::{CalcAction, CalculatorData};
+use crate::systems::core_logic::{TaskList, AddTaskEvent, ToggleTaskEvent, DeleteTaskEvent};
 use theme::*;
-
-#[derive(Component)]
-pub struct DisplayText;
-
-#[derive(Component)]
-pub struct CalcButton(pub CalcAction);
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui)
-           .add_systems(Update, (button_interaction_system, update_display_system));
+           .add_systems(Update, (
+               update_task_list_ui.run_if(resource_changed::<TaskList>()),
+               handle_add_button,
+               handle_task_buttons,
+           ));
     }
+}
+
+#[derive(Component)]
+struct TaskListContainer;
+
+#[derive(Component)]
+struct AddTaskButton;
+
+#[derive(Component)]
+struct ToggleButton(uuid::Uuid);
+
+#[derive(Component)]
+struct DeleteButton(uuid::Uuid);
+
+#[derive(Component)]
+struct ButtonColors {
+    normal: Color,
+    hovered: Color,
+    pressed: Color,
 }
 
 fn setup_ui(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 
-    // Root node
+    // Main Container
     commands.spawn(NodeBundle {
         style: Style {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
+            flex_direction: FlexDirection::Column,
             align_items: AlignItems::Center,
+            padding: UiRect::all(Val::Px(40.0)),
             ..default()
         },
         background_color: COLOR_BACKGROUND.into(),
         ..default()
     }).with_children(|parent| {
-        // Calculator Container
-        parent.spawn(NodeBundle {
-            style: Style {
-                flex_direction: FlexDirection::Column,
-                width: Val::Px(340.0),
-                height: Val::Px(520.0),
-                padding: UiRect::all(Val::Px(20.0)),
-                row_gap: Val::Px(12.0),
-                border: UiRect::all(Val::Px(2.0)),
+        // Header
+        parent.spawn(TextBundle::from_section(
+            "Task Manager",
+            TextStyle {
+                font_size: 40.0,
+                color: COLOR_TEXT,
                 ..default()
-            },
-            background_color: COLOR_CALC_BG.into(),
-            border_color: Color::rgb(0.2, 0.2, 0.2).into(),
+            }
+        ).with_style(Style {
+            margin: UiRect::bottom(Val::Px(20.0)),
             ..default()
-        }).with_children(|calc| {
-            // Display Screen
-            calc.spawn(NodeBundle {
+        }));
+
+        // Add Task Button
+        parent.spawn((
+            ButtonBundle {
                 style: Style {
-                    width: Val::Percent(100.0),
-                    height: Val::Px(100.0),
-                    justify_content: JustifyContent::FlexEnd,
-                    align_items: AlignItems::FlexEnd,
-                    padding: UiRect::all(Val::Px(15.0)),
-                    margin: UiRect::bottom(Val::Px(10.0)),
+                    padding: UiRect::axes(Val::Px(20.0), Val::Px(10.0)),
+                    margin: UiRect::bottom(Val::Px(30.0)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
-                background_color: COLOR_DISPLAY_BG.into(),
+                background_color: COLOR_PRIMARY.into(),
                 ..default()
-            }).with_children(|disp| {
-                disp.spawn(( 
-                    TextBundle::from_section(
-                        "0",
-                        TextStyle {
-                            font_size: 56.0,
-                            color: COLOR_TEXT,
-                            ..default()
-                        }
-                    ),
-                    DisplayText,
-                ));
-            });
-
-            // Buttons Grid Layout
-            let buttons = vec![
-                vec![("C", CalcAction::Clear, COLOR_BTN_SPECIAL, 3.0), ("/", CalcAction::Op('/'), COLOR_BTN_OP, 1.0)],
-                vec![("7", CalcAction::Digit(7), COLOR_BTN_NORMAL, 1.0), ("8", CalcAction::Digit(8), COLOR_BTN_NORMAL, 1.0), ("9", CalcAction::Digit(9), COLOR_BTN_NORMAL, 1.0), ("*", CalcAction::Op('*'), COLOR_BTN_OP, 1.0)],
-                vec![("4", CalcAction::Digit(4), COLOR_BTN_NORMAL, 1.0), ("5", CalcAction::Digit(5), COLOR_BTN_NORMAL, 1.0), ("6", CalcAction::Digit(6), COLOR_BTN_NORMAL, 1.0), ("-", CalcAction::Op('-'), COLOR_BTN_OP, 1.0)],
-                vec![("1", CalcAction::Digit(1), COLOR_BTN_NORMAL, 1.0), ("2", CalcAction::Digit(2), COLOR_BTN_NORMAL, 1.0), ("3", CalcAction::Digit(3), COLOR_BTN_NORMAL, 1.0), ("+", CalcAction::Op('+'), COLOR_BTN_OP, 1.0)],
-                vec![("0", CalcAction::Digit(0), COLOR_BTN_NORMAL, 2.0), (".", CalcAction::Decimal, COLOR_BTN_NORMAL, 1.0), ("=", CalcAction::Equals, COLOR_BTN_OP, 1.0)],
-            ];
-
-            for row in buttons {
-                calc.spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Percent(100.0),
-                        height: Val::Px(65.0),
-                        flex_direction: FlexDirection::Row,
-                        column_gap: Val::Px(12.0),
-                        ..default()
-                    },
+            },
+            AddTaskButton,
+        )).with_children(|btn| {
+            btn.spawn(TextBundle::from_section(
+                "+ Add New Task",
+                TextStyle {
+                    font_size: 20.0,
+                    color: Color::WHITE,
                     ..default()
-                }).with_children(|row_node| {
-                    for (label, action, color, flex_grow) in row {
-                        row_node.spawn((
-                            ButtonBundle {
-                                style: Style {
-                                    width: Val::Percent(100.0),
-                                    height: Val::Percent(100.0),
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    flex_grow,
-                                    ..default()
-                                },
-                                background_color: color.into(),
-                                ..default()
-                            },
-                            CalcButton(action),
-                        )).with_children(|btn| {
-                            btn.spawn(TextBundle::from_section(
-                                label,
-                                TextStyle {
-                                    font_size: 32.0,
-                                    color: COLOR_TEXT,
-                                    ..default()
-                                }
-                            ));
-                        });
-                    }
-                });
-            }
+                }
+            ));
         });
+
+        // Task List Container
+        parent.spawn((
+            NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(600.0),
+                    row_gap: Val::Px(10.0),
+                    ..default()
+                },
+                ..default()
+            },
+            TaskListContainer,
+        ));
     });
 }
 
-fn button_interaction_system(
-    mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, &CalcButton),
-        (Changed<Interaction>, With<Button>),
-    >,
-    mut action_events: EventWriter<CalcAction>,
+fn update_task_list_ui(
+    mut commands: Commands,
+    task_list: Res<TaskList>,
+    q_container: Query<Entity, With<TaskListContainer>>,
 ) {
-    for (interaction, mut color, button) in &mut interaction_query {
+    let Ok(container_entity) = q_container.get_single() else { return };
+
+    // Clear existing tasks from UI
+    commands.entity(container_entity).clear_children();
+
+    // Rebuild the list
+    commands.entity(container_entity).with_children(|parent| {
+        if task_list.tasks.is_empty() {
+            parent.spawn(TextBundle::from_section(
+                "No tasks yet. Add one above!",
+                TextStyle {
+                    font_size: 20.0,
+                    color: COLOR_TEXT_DIM,
+                    ..default()
+                }
+            ).with_style(Style {
+                align_self: AlignSelf::Center,
+                margin: UiRect::top(Val::Px(20.0)),
+                ..default()
+            }));
+            return;
+        }
+
+        for task in &task_list.tasks {
+            parent.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    padding: UiRect::all(Val::Px(15.0)),
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                background_color: COLOR_PANEL.into(),
+                ..default()
+            }).with_children(|row| {
+                // Task Title
+                let text_color = if task.completed { COLOR_TEXT_DIM } else { COLOR_TEXT };
+                let title = if task.completed { format!("✓ {}", task.title) } else { task.title.clone() };
+                
+                row.spawn(TextBundle::from_section(
+                    title,
+                    TextStyle {
+                        font_size: 22.0,
+                        color: text_color,
+                        ..default()
+                    }
+                ));
+
+                // Buttons Container
+                row.spawn(NodeBundle {
+                    style: Style {
+                        column_gap: Val::Px(10.0),
+                        ..default()
+                    },
+                    ..default()
+                }).with_children(|btns| {
+                    // Toggle Button
+                    let (bg_norm, bg_hov, bg_press) = if task.completed {
+                        (COLOR_TEXT_DIM, COLOR_TEXT_DIM, COLOR_TEXT_DIM)
+                    } else {
+                        (COLOR_SUCCESS, COLOR_SUCCESS_HOVER, COLOR_SUCCESS_PRESS)
+                    };
+
+                    btns.spawn((
+                        ButtonBundle {
+                            style: Style {
+                                padding: UiRect::axes(Val::Px(15.0), Val::Px(8.0)),
+                                ..default()
+                            },
+                            background_color: bg_norm.into(),
+                            ..default()
+                        },
+                        ToggleButton(task.id),
+                        ButtonColors { normal: bg_norm, hovered: bg_hov, pressed: bg_press },
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section(
+                            if task.completed { "Undo" } else { "Done" },
+                            TextStyle { font_size: 16.0, color: Color::WHITE, ..default() }
+                        ));
+                    });
+
+                    // Delete Button
+                    btns.spawn((
+                        ButtonBundle {
+                            style: Style {
+                                padding: UiRect::axes(Val::Px(15.0), Val::Px(8.0)),
+                                ..default()
+                            },
+                            background_color: COLOR_DANGER.into(),
+                            ..default()
+                        },
+                        DeleteButton(task.id),
+                        ButtonColors { normal: COLOR_DANGER, hovered: COLOR_DANGER_HOVER, pressed: COLOR_DANGER_PRESS },
+                    )).with_children(|btn| {
+                        btn.spawn(TextBundle::from_section(
+                            "Delete",
+                            TextStyle { font_size: 16.0, color: Color::WHITE, ..default() }
+                        ));
+                    });
+                });
+            });
+        }
+    });
+}
+
+fn handle_add_button(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<AddTaskButton>),
+    >,
+    mut add_task_ev: EventWriter<AddTaskEvent>,
+) {
+    for (interaction, mut bg) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                *color = COLOR_BTN_PRESSED.into();
-                action_events.send(button.0);
+                *bg = COLOR_PRIMARY_PRESS.into();
+                let random_tasks = ["Review Code", "Write Documentation", "Fix Bugs", "Design UI", "Team Meeting", "Refactor Logic"];
+                let task_name = random_tasks[rand::random::<usize>() % random_tasks.len()].to_string();
+                add_task_ev.send(AddTaskEvent(task_name));
             }
             Interaction::Hovered => {
-                *color = COLOR_BTN_HOVER.into();
+                *bg = COLOR_PRIMARY_HOVER.into();
             }
             Interaction::None => {
-                *color = match button.0 {
-                    CalcAction::Clear => COLOR_BTN_SPECIAL.into(),
-                    CalcAction::Op(_) | CalcAction::Equals => COLOR_BTN_OP.into(),
-                    _ => COLOR_BTN_NORMAL.into(),
-                };
+                *bg = COLOR_PRIMARY.into();
             }
         }
     }
 }
 
-fn update_display_system(
-    calc_data: Res<CalculatorData>,
-    mut query: Query<&mut Text, With<DisplayText>>,
+fn handle_task_buttons(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor, &ButtonColors, Option<&ToggleButton>, Option<&DeleteButton>),
+        (Changed<Interaction>, Or<(With<ToggleButton>, With<DeleteButton>)>),
+    >,
+    mut toggle_ev: EventWriter<ToggleTaskEvent>,
+    mut delete_ev: EventWriter<DeleteTaskEvent>,
 ) {
-    if calc_data.is_changed() {
-        for mut text in &mut query {
-            text.sections[0].value = calc_data.display.clone();
+    for (interaction, mut bg, colors, toggle, delete) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *bg = colors.pressed.into();
+                if let Some(t) = toggle { toggle_ev.send(ToggleTaskEvent(t.0)); }
+                if let Some(d) = delete { delete_ev.send(DeleteTaskEvent(d.0)); }
+            }
+            Interaction::Hovered => {
+                *bg = colors.hovered.into();
+            }
+            Interaction::None => {
+                *bg = colors.normal.into();
+            }
         }
     }
 }
